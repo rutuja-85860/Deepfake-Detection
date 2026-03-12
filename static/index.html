@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFake Detector — Live + Grad-CAM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap"
+    rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #070a11;
+      --surface: #0e1421;
+      --surface2: #141b2e;
+      --border: #1d2638;
+      --accent: #6366f1;
+      --accent2: #818cf8;
+      --real-c: #22d3a5;
+      --fake-c: #f43f5e;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --glow-real: rgba(34, 211, 165, .3);
+      --glow-fake: rgba(244, 63, 94, .3);
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden
+    }
+
+    /* noise */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      opacity: .4
+    }
+
+    /* header */
+    header {
+      position: relative;
+      z-index: 10;
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: rgba(7, 10, 17, .9);
+      backdrop-filter: blur(20px)
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--fake-c));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px
+    }
+
+    .logo-text {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -.2px
+    }
+
+    .logo-text span {
+      color: var(--accent2)
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px
+    }
+
+    .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .7rem;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted)
+    }
+
+    /* tabs */
+    .tabs {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      background: rgba(7, 10, 17, .6);
+      backdrop-filter: blur(12px)
+    }
+
+    .tab-btn {
+      padding: 14px 22px;
+      font-size: .9rem;
+      font-weight: 600;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all .2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap
+    }
+
+    .tab-btn:hover {
+      color: var(--text)
+    }
+
+    .tab-btn.active {
+      color: var(--accent2);
+      border-bottom-color: var(--accent)
+    }
+
+    .tab-panel {
+      display: none
+    }
+
+    .tab-panel.active {
+      display: block
+    }
+
+    /* main layout */
+    main {
+      position: relative;
+      z-index: 1;
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 24px 20px
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 20px
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 300px;
+      gap: 20px
+    }
+
+    @media(max-width:1100px) {
+      .three-col {
+        grid-template-columns: 1fr 300px
+      }
+    }
+
+    @media(max-width:860px) {
+
+      .two-col,
+      .three-col {
+        grid-template-columns: 1fr
+      }
+    }
+
+    /* card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden
+    }
+
+    .card-header {
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .7px
+    }
+
+    .card-header .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted)
+    }
+
+    .card-header .dot.live {
+      background: var(--fake-c);
+      animation: blink .9s infinite
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .25
+      }
+    }
+
+    /* camera */
+    .cam-wrap {
+      position: relative;
+      background: #000;
+      aspect-ratio: 16/9;
+      overflow: hidden
+    }
+
+    #webcam {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transform: scaleX(-1)
+    }
+
+    #canvas {
+      display: none
+    }
+
+    #overlayCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none
+    }
+
+    .scan-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      box-shadow: 0 0 12px var(--accent);
+      top: 0%;
+      opacity: 0;
+      animation: none
+    }
+
+    .scan-line.active {
+      opacity: 1;
+      animation: scan 2s linear infinite
+    }
+
+    @keyframes scan {
+      from {
+        top: 0%
+      }
+
+      to {
+        top: 100%
+      }
+    }
+
+    .cam-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 14px
+    }
+
+    .verdict-pill {
+      align-self: flex-start;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      padding: 7px 18px;
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+      transition: all .25s ease;
+      opacity: 0
+    }
+
+    .verdict-pill.show {
+      opacity: 1
+    }
+
+    .verdict-pill.REAL {
+      background: rgba(22, 211, 165, .15);
+      border: 1.5px solid var(--real-c);
+      color: var(--real-c);
+      box-shadow: 0 0 18px var(--glow-real)
+    }
+
+    .verdict-pill.FAKE {
+      background: rgba(244, 63, 94, .15);
+      border: 1.5px solid var(--fake-c);
+      color: var(--fake-c);
+      box-shadow: 0 0 18px var(--glow-fake)
+    }
+
+    .no-face-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: .7rem;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(251, 191, 36, .12);
+      border: 1px solid rgba(251, 191, 36, .5);
+      color: #fbbf24;
+      opacity: 0;
+      transition: opacity .3s;
+      pointer-events: none
+    }
+
+    .no-face-badge.show {
+      opacity: 1
+    }
+
+    /* controls */
+    .controls {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 18px;
+      border-radius: 9px;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: .855rem;
+      font-weight: 600;
+      transition: all .18s ease
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #4f46e5);
+      color: #fff
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 20px rgba(99, 102, 241, .5)
+    }
+
+    .btn-danger {
+      background: rgba(244, 63, 94, .1);
+      border: 1px solid rgba(244, 63, 94, .4);
+      color: var(--fake-c)
+    }
+
+    .btn-danger:hover {
+      background: rgba(244, 63, 94, .2)
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text)
+    }
+
+    .btn-ghost:hover {
+      background: var(--border)
+    }
+
+    .btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important
+    }
+
+    .toggle-cam {
+      padding: 8px 14px;
+      font-size: .78rem
+    }
+
+    .fps-label {
+      margin-left: auto;
+      font-size: .8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    select.fps-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 11px;
+      font-family: inherit;
+      font-size: .83rem;
+      cursor: pointer
+    }
+
+    .status-bar {
+      padding: 10px 18px;
+      background: var(--surface2);
+      font-size: .75rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid var(--border)
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0
+    }
+
+    .status-dot.running {
+      background: var(--real-c);
+      animation: blink .8s infinite
+    }
+
+    .status-dot.error {
+      background: var(--fake-c)
+    }
+
+    /* sidebar */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px
+    }
+
+    .verdict-display {
+      padding: 24px 18px;
+      text-align: center
+    }
+
+    .verdict-big {
+      font-size: 2.6rem;
+      font-weight: 900;
+      letter-spacing: -1px;
+      transition: all .3s ease;
+      background: linear-gradient(135deg, var(--muted), #475569);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent
+    }
+
+    .verdict-big.REAL {
+      background: linear-gradient(135deg, var(--real-c), #34d399)
+    }
+
+    .verdict-big.FAKE {
+      background: linear-gradient(135deg, var(--fake-c), #fb7185)
+    }
+
+    .verdict-sub {
+      font-size: .78rem;
+      color: var(--muted);
+      margin-top: 4px
+    }
+
+    /* ring */
+    .ring-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 6px 0 14px
+    }
+
+    .ring-svg {
+      transform: rotate(-90deg)
+    }
+
+    .ring-bg {
+      fill: none;
+      stroke: var(--surface2);
+      stroke-width: 9
+    }
+
+    .ring-fill {
+      fill: none;
+      stroke-width: 9;
+      stroke-linecap: round;
+      stroke: var(--muted);
+      stroke-dasharray: 283;
+      stroke-dashoffset: 283;
+      transition: stroke-dashoffset .5s ease, stroke .3s ease
+    }
+
+    .ring-text {
+      font-size: 1.4rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      fill: var(--text)
+    }
+
+    .ring-label {
+      font-size: .6rem;
+      fill: var(--muted);
+      letter-spacing: .5px
+    }
+
+    /* prob bars */
+    .prob-bars {
+      padding: 0 18px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px
+    }
+
+    .prob-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px
+    }
+
+    .prob-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: .79rem
+    }
+
+    .prob-name {
+      font-weight: 600
+    }
+
+    .prob-pct {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted)
+    }
+
+    .prob-track {
+      height: 7px;
+      background: var(--surface2);
+      border-radius: 999px;
+      overflow: hidden
+    }
+
+    .prob-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      transition: width .4s cubic-bezier(.4, 0, .2, 1)
+    }
+
+    .prob-fill.real {
+      background: linear-gradient(90deg, var(--real-c), #34d399)
+    }
+
+    .prob-fill.fake {
+      background: linear-gradient(90deg, var(--fake-c), #fb7185)
+    }
+
+    /* stats grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      padding: 0 18px 18px
+    }
+
+    .stat-box {
+      background: var(--surface2);
+      border-radius: 11px;
+      padding: 11px;
+      border: 1px solid var(--border)
+    }
+
+    .stat-label {
+      font-size: .68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 3px
+    }
+
+    .stat-value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace
+    }
+
+    .stat-value.real {
+      color: var(--real-c)
+    }
+
+    .stat-value.fake {
+      color: var(--fake-c)
+    }
+
+    .stat-value.neutral {
+      color: var(--accent2)
+    }
+
+    /* chart */
+    .chart-wrap {
+      padding: 14px 18px
+    }
+
+    .chart-canvas-wrap {
+      height: 130px
+    }
+
+    /* ── Grad-CAM panel ── */
+    .gcam-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px
+    }
+
+    .gcam-live-wrap {
+      position: relative;
+      background: var(--surface2);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center
+    }
+
+    .gcam-live-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: 12px
+    }
+
+    .gcam-placeholder {
+      color: var(--muted);
+      font-size: .8rem;
+      text-align: center;
+      padding: 20px
+    }
+
+    .gcam-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: .75rem;
+      padding: 8px 18px;
+      flex-wrap: wrap
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px
+    }
+
+    .legend-swatch {
+      width: 18px;
+      height: 8px;
+      border-radius: 3px
+    }
+
+    /* gradient bar legend */
+    .gcam-colorbar {
+      height: 10px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, #00007f, #0000ff, #00ffff, #00ff00, #ffff00, #ff7f00, #ff0000);
+      margin: 0 18px 4px;
+      border-radius: 5px
+    }
+
+    .gcam-colorbar-labels {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 18px 12px;
+      font-size: .68rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace
+    }
+
+    /* upload tab */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .2s ease;
+      background: var(--surface2);
+      margin: 18px
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, .06)
+    }
+
+    .drop-icon {
+      font-size: 2.4rem;
+      margin-bottom: 10px
+    }
+
+    .drop-title {
+      font-weight: 700;
+      margin-bottom: 6px
+    }
+
+    .drop-sub {
+      font-size: .82rem;
+      color: var(--muted)
+    }
+
+    #fileInput {
+      display: none
+    }
+
+    .progress-wrap {
+      padding: 0 18px 18px;
+      display: none
+    }
+
+    .progress-bar {
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 8px
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 999px;
+      transition: width .3s ease
+    }
+
+    /* gcam strip (video) */
+    .gcam-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 0 18px 18px
+    }
+
+    .gcam-card {
+      background: var(--surface2);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border)
+    }
+
+    .gcam-card img {
+      width: 100%;
+      display: block;
+      aspect-ratio: 1;
+      object-fit: cover
+    }
+
+    .gcam-card-info {
+      padding: 6px 8px;
+      font-size: .72rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center
+    }
+
+    .gcam-verdict {
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace
+    }
+
+    .gcam-verdict.REAL {
+      color: var(--real-c)
+    }
+
+    .gcam-verdict.FAKE {
+      color: var(--fake-c)
+    }
+
+    /* video result card */
+    .result-hero {
+      padding: 24px 18px;
+      text-align: center;
+      border-bottom: 1px solid var(--border)
+    }
+
+    .result-verdict {
+      font-size: 3rem;
+      font-weight: 900;
+      letter-spacing: -1.5px
+    }
+
+    .result-verdict.REAL {
+      color: var(--real-c)
+    }
+
+    .result-verdict.FAKE {
+      color: var(--fake-c)
+    }
+
+    .result-conf {
+      font-size: 1.1rem;
+      color: var(--muted);
+      margin-top: 4px
+    }
+
+    .result-meta {
+      font-size: .78rem;
+      color: var(--muted);
+      margin-top: 8px
+    }
+
+    .hidden {
+      display: none !important
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🔍</div>
+      <div class="logo-text">Deep<span>Fake</span> Detector</div>
+    </div>
+    <div class="header-right">
+      <span class="badge">Grad-CAM · v3.2</span>
+    </div>
+  </header>
+
+  <!-- Tab bar -->
+  <div class="tabs">
+    <button class="tab-btn active" id="tabLiveBtn" onclick="switchTab('live')">📹 Live Webcam</button>
+    <button class="tab-btn" id="tabUploadBtn" onclick="switchTab('upload')">🎬 Upload Video</button>
+  </div>
+
+  <!-- ════════════════ LIVE TAB ════════════════ -->
+  <div id="tabLive" class="tab-panel active">
+    <main>
+      <div class="three-col">
+
+        <!-- Camera feed -->
+        <div style="display:flex;flex-direction:column;gap:18px">
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" id="liveDot"></div>
+              <span id="liveLabel">CAMERA FEED</span>
+            </div>
+            <div class="cam-wrap" id="camWrap">
+              <video id="webcam" autoplay playsinline muted></video>
+              <canvas id="overlayCanvas"></canvas>
+              <canvas id="canvas"></canvas>
+              <div class="scan-line" id="scanLine"></div>
+              <div class="cam-overlay">
+                <div class="verdict-pill" id="verdictPill">— —</div>
+              </div>
+              <div class="no-face-badge" id="noFaceBadge">⚠ No face detected</div>
+            </div>
+            <div class="controls">
+              <button class="btn btn-primary" id="startBtn" onclick="startCamera()">▶ Start Camera</button>
+              <button class="btn btn-danger" id="stopBtn" onclick="stopCamera()" disabled>■ Stop</button>
+              <label style="display:flex;align-items:center;gap:6px">
+                <input type="checkbox" id="gcamToggle" checked
+                  style="accent-color:var(--accent);width:14px;height:14px">
+                <span style="font-size:.8rem;color:var(--muted)">Grad-CAM</span>
+              </label>
+              <div class="fps-label">
+                Interval:
+                <select class="fps-select" id="intervalSel">
+                  <option value="200">5 fps</option>
+                  <option value="333" selected>3 fps</option>
+                  <option value="500">2 fps</option>
+                  <option value="1000">1 fps</option>
+                </select>
+              </div>
+            </div>
+            <div class="status-bar">
+              <div class="status-dot" id="statusDot"></div>
+              <span id="statusTxt">Ready — click Start Camera.</span>
+            </div>
+          </div>
+
+          <!-- History chart -->
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" style="background:var(--accent2)"></div>
+              CONFIDENCE HISTORY (last 60 frames)
+            </div>
+            <div class="chart-wrap">
+              <div class="chart-canvas-wrap">
+                <canvas id="historyChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grad-CAM panel -->
+        <div class="card gcam-panel" style="align-self:start;position:sticky;top:16px">
+          <div class="card-header">
+            <div class="dot" style="background:#a78bfa"></div>
+            GRAD-CAM HEATMAP
+          </div>
+          <div style="padding:14px 18px 8px">
+            <div class="gcam-live-wrap" id="gcamWrap">
+              <div class="gcam-placeholder" id="gcamPlaceholder">
+                🧠 Heatmap appears here<br>after detection starts
+              </div>
+              <img id="gcamImg" style="display:none" alt="Grad-CAM heatmap" />
+            </div>
+          </div>
+          <!-- Color bar legend -->
+          <div class="gcam-colorbar"></div>
+          <div class="gcam-colorbar-labels"><span>Low</span><span>High Attention</span></div>
+          <div class="gcam-legend">
+            <div class="legend-item">
+              <div class="legend-swatch" style="background:linear-gradient(90deg,#ff0000,#ffff00)"></div>
+              <span style="color:var(--muted)">Key areas</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-swatch" style="background:#0000aa"></div>
+              <span style="color:var(--muted)">Ignored</span>
+            </div>
+          </div>
+          <div style="padding:8px 18px 14px;font-size:.74rem;color:var(--muted);line-height:1.5">
+            🔴 Red/Yellow → model focuses here<br>
+            🔵 Blue → low importance<br>
+            Eyes, mouth, nose = typical manipulation markers
+          </div>
+        </div>
+
+        <!-- Right sidebar -->
+        <div class="sidebar">
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" style="background:var(--accent)"></div>
+              VERDICT
+            </div>
+            <div class="verdict-display">
+              <div class="verdict-big" id="verdictBig">—</div>
+              <div class="verdict-sub" id="verdictSub">Waiting for frames…</div>
+            </div>
+            <div class="ring-wrap">
+              <svg class="ring-svg" width="110" height="110" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="45" />
+                <circle class="ring-fill" id="ringFill" cx="50" cy="50" r="45" />
+                <text class="ring-text" id="ringText" x="50" y="50" text-anchor="middle" dominant-baseline="central"
+                  transform="rotate(90,50,50)">—</text>
+                <text class="ring-label" x="50" y="64" text-anchor="middle" dominant-baseline="central"
+                  transform="rotate(90,50,50)">CONFIDENCE</text>
+              </svg>
+            </div>
+            <div class="prob-bars">
+              <div class="prob-row">
+                <div class="prob-header">
+                  <span class="prob-name" style="color:var(--real-c)">🟢 REAL</span>
+                  <span class="prob-pct" id="realPct">—</span>
+                </div>
+                <div class="prob-track">
+                  <div class="prob-fill real" id="realBar"></div>
+                </div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-header">
+                  <span class="prob-name" style="color:var(--fake-c)">🔴 FAKE</span>
+                  <span class="prob-pct" id="fakePct">—</span>
+                </div>
+                <div class="prob-track">
+                  <div class="prob-fill fake" id="fakeBar"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" style="background:var(--accent2)"></div>
+              SESSION STATS
+            </div>
+            <div class="stats-grid">
+              <div class="stat-box">
+                <div class="stat-label">Frames</div>
+                <div class="stat-value neutral" id="statFrames">0</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Faces Found</div>
+                <div class="stat-value neutral" id="statFaces">0</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">REAL count</div>
+                <div class="stat-value real" id="statReal">0</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">FAKE count</div>
+                <div class="stat-value fake" id="statFake">0</div>
+              </div>
+              <div class="stat-box" style="grid-column:1/-1">
+                <div class="stat-label">Avg Confidence</div>
+                <div class="stat-value neutral" id="statAvgConf">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ════════════════ UPLOAD TAB ════════════════ -->
+  <div id="tabUpload" class="tab-panel">
+    <main>
+      <div class="two-col">
+        <div style="display:flex;flex-direction:column;gap:18px">
+
+          <!-- Drop zone -->
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" style="background:var(--accent)"></div>
+              UPLOAD VIDEO
+            </div>
+            <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+              ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')"
+              ondrop="handleDrop(event)">
+              <div class="drop-icon">🎬</div>
+              <div class="drop-title">Drop a video or click to browse</div>
+              <div class="drop-sub">MP4 · AVI · MOV · MKV · WebM — max 200 MB</div>
+              <input type="file" id="fileInput" accept=".mp4,.avi,.mov,.mkv,.webm"
+                onchange="handleFile(this.files[0])" />
+            </div>
+            <div class="progress-wrap" id="progressWrap">
+              <div style="font-size:.8rem;color:var(--muted)" id="progressLabel">Analyzing…</div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+            </div>
+            <div class="status-bar">
+              <div class="status-dot" id="uploadStatusDot"></div>
+              <span id="uploadStatusTxt">Drop a video file to begin analysis.</span>
+            </div>
+          </div>
+
+          <!-- Result summary (hidden until result) -->
+          <div class="card hidden" id="resultCard">
+            <div class="card-header">
+              <div class="dot" style="background:var(--real-c)"></div>
+              DETECTION RESULT
+            </div>
+            <div class="result-hero">
+              <div class="result-verdict" id="uploadVerdict">—</div>
+              <div class="result-conf" id="uploadConf">Confidence: —</div>
+              <div class="result-meta" id="uploadMeta"></div>
+            </div>
+            <div class="prob-bars" style="padding-top:16px">
+              <div class="prob-row">
+                <div class="prob-header">
+                  <span class="prob-name" style="color:var(--real-c)">🟢 REAL probability</span>
+                  <span class="prob-pct" id="uploadRealPct">—</span>
+                </div>
+                <div class="prob-track">
+                  <div class="prob-fill real" id="uploadRealBar"></div>
+                </div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-header">
+                  <span class="prob-name" style="color:var(--fake-c)">🔴 FAKE probability</span>
+                  <span class="prob-pct" id="uploadFakePct">—</span>
+                </div>
+                <div class="prob-track">
+                  <div class="prob-fill fake" id="uploadFakeBar"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Grad-CAM strip -->
+          <div class="card hidden" id="gcamStripCard">
+            <div class="card-header">
+              <div class="dot" style="background:#a78bfa"></div>
+              GRAD-CAM EXPLAINABILITY — KEY FRAMES
+            </div>
+            <div style="padding:12px 18px 4px;font-size:.78rem;color:var(--muted)">
+              🔴 Red/Yellow = regions the model focused on · Blue = background/ignored
+            </div>
+            <!-- color bar -->
+            <div class="gcam-colorbar" style="margin:4px 18px 3px"></div>
+            <div class="gcam-colorbar-labels" style="padding:0 18px 10px">
+              <span>Low attention</span><span>High attention</span>
+            </div>
+            <div class="gcam-strip" id="gcamStrip"></div>
+          </div>
+        </div>
+
+        <!-- Right panel — upload verdict ring -->
+        <div class="sidebar" style="align-self:start;position:sticky;top:16px">
+          <div class="card">
+            <div class="card-header">
+              <div class="dot" style="background:var(--accent)"></div>
+              ANALYSIS
+            </div>
+            <div class="verdict-display">
+              <div class="verdict-big" id="uploadVerdictBig">—</div>
+              <div class="verdict-sub" id="uploadVerdictSub">Upload a video to begin</div>
+            </div>
+            <div class="ring-wrap">
+              <svg class="ring-svg" width="110" height="110" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="45" />
+                <circle class="ring-fill" id="uploadRingFill" cx="50" cy="50" r="45" />
+                <text class="ring-text" id="uploadRingText" x="50" y="50" text-anchor="middle"
+                  dominant-baseline="central" transform="rotate(90,50,50)">—</text>
+                <text class="ring-label" x="50" y="64" text-anchor="middle" dominant-baseline="central"
+                  transform="rotate(90,50,50)">CONFIDENCE</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ── Config ────────────────────────────────────────────────────────────────────
+    const API = '';
+    const MAX_HISTORY = 60;
+
+    // ── Tab switching ─────────────────────────────────────────────────────────────
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+      document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'Btn').classList.add('active');
+    }
+
+    // ── Live Webcam ───────────────────────────────────────────────────────────────
+    let stream = null, liveIntervalId = null, running = false;
+    let camStats = { frames: 0, faces: 0, real: 0, fake: 0, confSum: 0 };
+    let history = { labels: [], real: [], fake: [] };
+
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Chart
+    const chartCtx = document.getElementById('historyChart').getContext('2d');
+    const chart = new Chart(chartCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Real %', data: [], borderColor: '#22d3a5', backgroundColor: 'rgba(34,211,165,.08)',
+            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true
+          },
+          {
+            label: 'Fake %', data: [], borderColor: '#f43f5e', backgroundColor: 'rgba(244,63,94,.08)',
+            borderWidth: 2, pointRadius: 0, tension: 0.4, fill: true
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { display: false },
+          y: {
+            min: 0, max: 100,
+            grid: { color: 'rgba(255,255,255,.04)' },
+            ticks: { color: '#64748b', font: { size: 10 } }
+          },
+        },
+        plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 10, font: { size: 11 } } } },
+      },
+    });
+
+    async function startCamera() {
+      setStatus('Requesting camera access…', 'running');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+        video.srcObject = stream;
+        await video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+
+        running = true;
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        document.getElementById('liveDot').classList.add('live');
+        document.getElementById('liveLabel').textContent = 'LIVE DETECTION';
+        document.getElementById('scanLine').classList.add('active');
+
+        const ms = parseInt(document.getElementById('intervalSel').value, 10);
+        liveIntervalId = setInterval(sendFrame, ms);
+        setStatus('Live detection running…', 'running');
+      } catch (e) {
+        setStatus('Camera error: ' + e.message, 'error');
+      }
+    }
+
+    function stopCamera() {
+      running = false;
+      clearInterval(liveIntervalId);
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null; video.srcObject = null;
+
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+      document.getElementById('liveDot').classList.remove('live');
+      document.getElementById('liveLabel').textContent = 'CAMERA FEED';
+      document.getElementById('scanLine').classList.remove('active');
+      document.getElementById('verdictPill').className = 'verdict-pill';
+      document.getElementById('noFaceBadge').classList.remove('show');
+      setStatus('Stopped.', '');
+    }
+
+    let pending = false;
+
+    async function sendFrame() {
+      if (!running || pending || video.readyState < 2) return;
+      pending = true;
+      try {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+        ctx.restore();
+        const b64 = canvas.toDataURL('image/jpeg', 0.82);
+        const t0 = performance.now();
+
+        const useGcam = document.getElementById('gcamToggle').checked;
+        const endpoint = useGcam ? '/detect-frame-gradcam' : '/detect-frame';
+
+        const res = await fetch(API + endpoint, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: b64 }),
+        });
+
+        if (!res.ok) { setStatus(`API error ${res.status}`, 'error'); return; }
+
+        const d = await res.json();
+        const lat = Math.round(performance.now() - t0);
+        updateLiveUI(d, lat, useGcam);
+      } catch (e) {
+        setStatus('Fetch error: ' + e.message, 'error');
+      } finally {
+        pending = false;
+      }
+    }
+
+    function updateLiveUI(d, latency, withGcam) {
+      const { verdict, confidence, fake_probability, real_probability, face_detected, face_conf } = d;
+
+      // Verdict pill
+      const pill = document.getElementById('verdictPill');
+      pill.textContent = verdict;
+      pill.className = 'verdict-pill show ' + verdict;
+
+      document.getElementById('noFaceBadge').classList.toggle('show', !face_detected);
+
+      // Big verdict
+      const vb = document.getElementById('verdictBig');
+      vb.textContent = verdict;
+      vb.className = 'verdict-big ' + verdict;
+      document.getElementById('verdictSub').textContent =
+        face_detected ? `Face conf: ${face_conf}%` : 'No face — full-frame used';
+
+      // Ring
+      const r = document.getElementById('ringFill');
+      const offset = 283 - (confidence / 100) * 283;
+      r.style.strokeDashoffset = offset;
+      r.style.stroke = verdict === 'REAL' ? '#22d3a5' : '#f43f5e';
+      document.getElementById('ringText').textContent = confidence.toFixed(1) + '%';
+
+      // Bars
+      document.getElementById('realBar').style.width = real_probability + '%';
+      document.getElementById('fakeBar').style.width = fake_probability + '%';
+      document.getElementById('realPct').textContent = real_probability.toFixed(1) + '%';
+      document.getElementById('fakePct').textContent = fake_probability.toFixed(1) + '%';
+
+      // Stats
+      camStats.frames++;
+      if (face_detected) camStats.faces++;
+      if (verdict === 'REAL') camStats.real++; else camStats.fake++;
+      camStats.confSum += confidence;
+      document.getElementById('statFrames').textContent = camStats.frames;
+      document.getElementById('statFaces').textContent = camStats.faces;
+      document.getElementById('statReal').textContent = camStats.real;
+      document.getElementById('statFake').textContent = camStats.fake;
+      document.getElementById('statAvgConf').textContent = (camStats.confSum / camStats.frames).toFixed(1) + '%';
+
+      // History chart
+      history.labels.push('#' + camStats.frames);
+      history.real.push(real_probability);
+      history.fake.push(fake_probability);
+      if (history.labels.length > MAX_HISTORY) {
+        history.labels.shift(); history.real.shift(); history.fake.shift();
+      }
+      chart.data.labels = history.labels;
+      chart.data.datasets[0].data = history.real;
+      chart.data.datasets[1].data = history.fake;
+      chart.update('none');
+
+      // Grad-CAM
+      if (withGcam && d.heatmap_b64) {
+        const img = document.getElementById('gcamImg');
+        img.src = d.heatmap_b64;
+        img.style.display = 'block';
+        document.getElementById('gcamPlaceholder').style.display = 'none';
+      }
+
+      setStatus(`Frame #${camStats.frames} · ${verdict} · conf ${confidence.toFixed(1)}% · ${latency}ms`, 'running');
+    }
+
+    function setStatus(msg, type) {
+      document.getElementById('statusTxt').textContent = msg;
+      const dot = document.getElementById('statusDot');
+      dot.className = 'status-dot' + (type ? ' ' + type : '');
+    }
+
+    // ── Upload Tab ────────────────────────────────────────────────────────────────
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').classList.remove('drag');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    }
+
+    function setUploadStatus(msg, type) {
+      document.getElementById('uploadStatusTxt').textContent = msg;
+      const dot = document.getElementById('uploadStatusDot');
+      dot.className = 'status-dot' + (type ? ' ' + type : '');
+    }
+
+    function animateProgress(duration) {
+      const fill = document.getElementById('progressFill');
+      const wrap = document.getElementById('progressWrap');
+      wrap.style.display = 'block';
+      fill.style.width = '0%';
+      let start = null;
+      const step = ts => {
+        if (!start) start = ts;
+        const pct = Math.min(((ts - start) / duration) * 92, 92);
+        fill.style.width = pct + '%';
+        if (pct < 92) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      return fill;
+    }
+
+    async function handleFile(file) {
+      if (!file) return;
+      const allowed = ['.mp4', '.avi', '.mov', '.mkv', '.webm'];
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      if (!allowed.includes(ext)) {
+        setUploadStatus('Unsupported file type: ' + ext, 'error'); return;
+      }
+
+      document.getElementById('resultCard').classList.add('hidden');
+      document.getElementById('gcamStripCard').classList.add('hidden');
+      setUploadStatus(`Uploading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)…`, 'running');
+      document.getElementById('progressLabel').textContent = 'Analyzing video with Grad-CAM…';
+      const fill = animateProgress(20000);
+
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const res = await fetch(API + '/detect-gradcam', { method: 'POST', body: form });
+        fill.style.width = '100%';
+        if (!res.ok) {
+          const txt = await res.text();
+          setUploadStatus(`Error ${res.status}: ${txt}`, 'error');
+          document.getElementById('progressWrap').style.display = 'none';
+          return;
+        }
+
+        const d = await res.json();
+        document.getElementById('progressWrap').style.display = 'none';
+        showUploadResult(d);
+        setUploadStatus(`Done — ${d.verdict} with ${(d.confidence * 100).toFixed(1)}% confidence`, 'running');
+      } catch (e) {
+        setUploadStatus('Fetch error: ' + e.message, 'error');
+        document.getElementById('progressWrap').style.display = 'none';
+      }
+    }
+
+    function showUploadResult(d) {
+      const conf = (d.confidence * 100).toFixed(1);
+
+      // Result card
+      document.getElementById('resultCard').classList.remove('hidden');
+      const rv = document.getElementById('uploadVerdict');
+      rv.textContent = d.verdict;
+      rv.className = 'result-verdict ' + d.verdict;
+      document.getElementById('uploadConf').textContent = `Confidence: ${conf}%`;
+      document.getElementById('uploadMeta').textContent =
+        `${d.frames_analyzed} frames · ${d.faces_detected} faces detected` +
+        ` · fake ${(d.fake_probability * 100).toFixed(1)}%`;
+
+      // Bars
+      const rp = (d.real_probability * 100).toFixed(1);
+      const fp = (d.fake_probability * 100).toFixed(1);
+      document.getElementById('uploadRealBar').style.width = rp + '%';
+      document.getElementById('uploadFakeBar').style.width = fp + '%';
+      document.getElementById('uploadRealPct').textContent = rp + '%';
+      document.getElementById('uploadFakePct').textContent = fp + '%';
+
+      // Ring (sidebar)
+      const vb = document.getElementById('uploadVerdictBig');
+      vb.textContent = d.verdict;
+      vb.className = 'verdict-big ' + d.verdict;
+      document.getElementById('uploadVerdictSub').textContent =
+        `${d.frames_analyzed} frames analyzed`;
+
+      const r = document.getElementById('uploadRingFill');
+      r.style.strokeDashoffset = 283 - (d.confidence) * 283;
+      r.style.stroke = d.verdict === 'REAL' ? '#22d3a5' : '#f43f5e';
+      document.getElementById('uploadRingText').textContent = conf + '%';
+
+      // Grad-CAM strip
+      if (d.gradcam_frames && d.gradcam_frames.length) {
+        document.getElementById('gcamStripCard').classList.remove('hidden');
+        const strip = document.getElementById('gcamStrip');
+        strip.innerHTML = '';
+        d.gradcam_frames.forEach(gf => {
+          const card = document.createElement('div');
+          card.className = 'gcam-card';
+          card.innerHTML = `
+        <img src="${gf.heatmap_b64}" alt="Grad-CAM frame ${gf.frame_index}" />
+        <div class="gcam-card-info">
+          <span class="gcam-verdict ${gf.verdict}">${gf.verdict}</span>
+          <span style="color:var(--muted);font-family:'JetBrains Mono',monospace">
+            F:${gf.fake_prob}%
+          </span>
+        </div>`;
+          strip.appendChild(card);
+        });
+      }
+    }
+  </script>
+</body>
+
+</html>
