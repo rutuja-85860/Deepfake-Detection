@@ -12,7 +12,7 @@ The system combines **EfficientNet-based video analysis**, **ensemble audio clas
 
 The model highlights manipulated facial regions such as the **mouth, nose, and eyes**, where deepfake artifacts commonly appear.
 
-![GradCAM Heatmap](docs/images/gradcam_heatmap.png)
+![GradCAM Heatmap](heatmap.png)
 
 ---
 
@@ -20,7 +20,7 @@ The model highlights manipulated facial regions such as the **mouth, nose, and e
 
 Real-time deepfake detection using webcam frames with explainable Grad-CAM visualization.
 
-![Live Webcam](docs/images/live_webcam.png)
+![Live Webcam](webcm.png)
 
 ---
 
@@ -28,7 +28,7 @@ Real-time deepfake detection using webcam frames with explainable Grad-CAM visua
 
 Upload a video and get a **frame-level deepfake verdict** with weighted aggregation.
 
-![Video Upload Result](docs/images/video_upload_result.png)
+![Video Upload Result](ui.png)
 
 ---
 
